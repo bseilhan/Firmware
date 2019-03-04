@@ -48,6 +48,11 @@
 
 #include "perf_counter.h"
 
+/* latency histogram */
+__EXPORT const uint16_t latency_bucket_count = LATENCY_BUCKET_COUNT;
+__EXPORT const uint16_t	latency_buckets[LATENCY_BUCKET_COUNT] = { 1, 2, 5, 10, 20, 50, 100, 1000 };
+__EXPORT uint32_t	latency_counters[LATENCY_BUCKET_COUNT + 1];
+
 
 #ifdef __PX4_QURT
 // There is presumably no dprintf on QURT. Therefore use the usual output to mini-dm.
@@ -458,11 +463,11 @@ perf_print_counter_fd(int fd, perf_counter_t handle)
 	case PC_ELAPSED: {
 			struct perf_ctr_elapsed *pce = (struct perf_ctr_elapsed *)handle;
 			float rms = sqrtf(pce->M2 / (pce->event_count - 1));
-			dprintf(fd, "%s: %llu events, %lluus elapsed, %lluus avg, min %lluus max %lluus %5.3fus rms\n",
+			dprintf(fd, "%s: %llu events, %lluus elapsed, %.2fus avg, min %lluus max %lluus %5.3fus rms\n",
 				handle->name,
 				(unsigned long long)pce->event_count,
 				(unsigned long long)pce->time_total,
-				(pce->event_count == 0) ? 0 : (unsigned long long)pce->time_total / pce->event_count,
+				(pce->event_count == 0) ? 0 : (double)pce->time_total / (double)pce->event_count,
 				(unsigned long long)pce->time_least,
 				(unsigned long long)pce->time_most,
 				(double)(1e6f * rms));
@@ -473,10 +478,10 @@ perf_print_counter_fd(int fd, perf_counter_t handle)
 			struct perf_ctr_interval *pci = (struct perf_ctr_interval *)handle;
 			float rms = sqrtf(pci->M2 / (pci->event_count - 1));
 
-			dprintf(fd, "%s: %llu events, %lluus avg, min %lluus max %lluus %5.3fus rms\n",
+			dprintf(fd, "%s: %llu events, %.2fus avg, min %lluus max %lluus %5.3fus rms\n",
 				handle->name,
 				(unsigned long long)pci->event_count,
-				(pci->event_count == 0) ? 0 : (unsigned long long)(pci->time_last - pci->time_first) / pci->event_count,
+				(pci->event_count == 0) ? 0 : (double)(pci->time_last - pci->time_first) / (double)pci->event_count,
 				(unsigned long long)pci->time_least,
 				(unsigned long long)pci->time_most,
 				(double)(1e6f * rms));
@@ -508,11 +513,11 @@ perf_print_counter_buffer(char *buffer, int length, perf_counter_t handle)
 	case PC_ELAPSED: {
 			struct perf_ctr_elapsed *pce = (struct perf_ctr_elapsed *)handle;
 			float rms = sqrtf(pce->M2 / (pce->event_count - 1));
-			num_written = snprintf(buffer, length, "%s: %llu events, %lluus elapsed, %lluus avg, min %lluus max %lluus %5.3fus rms",
+			num_written = snprintf(buffer, length, "%s: %llu events, %lluus elapsed, %.2fus avg, min %lluus max %lluus %5.3fus rms",
 					       handle->name,
 					       (unsigned long long)pce->event_count,
 					       (unsigned long long)pce->time_total,
-					       (pce->event_count == 0) ? 0 : (unsigned long long)pce->time_total / pce->event_count,
+					       (pce->event_count == 0) ? 0 : (double)pce->time_total / (double)pce->event_count,
 					       (unsigned long long)pce->time_least,
 					       (unsigned long long)pce->time_most,
 					       (double)(1e6f * rms));
@@ -523,10 +528,10 @@ perf_print_counter_buffer(char *buffer, int length, perf_counter_t handle)
 			struct perf_ctr_interval *pci = (struct perf_ctr_interval *)handle;
 			float rms = sqrtf(pci->M2 / (pci->event_count - 1));
 
-			num_written = snprintf(buffer, length, "%s: %llu events, %lluus avg, min %lluus max %lluus %5.3fus rms",
+			num_written = snprintf(buffer, length, "%s: %llu events, %.2f avg, min %lluus max %lluus %5.3fus rms",
 					       handle->name,
 					       (unsigned long long)pci->event_count,
-					       (pci->event_count == 0) ? 0 : (unsigned long long)(pci->time_last - pci->time_first) / pci->event_count,
+					       (pci->event_count == 0) ? 0 : (double)(pci->time_last - pci->time_first) / (double)pci->event_count,
 					       (unsigned long long)pci->time_least,
 					       (unsigned long long)pci->time_most,
 					       (double)(1e6f * rms));
@@ -597,18 +602,13 @@ perf_print_all(int fd)
 	pthread_mutex_unlock(&perf_counters_mutex);
 }
 
-// these are defined in drv_hrt.c
-extern const uint16_t latency_bucket_count;
-extern uint32_t latency_counters[];
-extern const uint16_t latency_buckets[];
-
 void
 perf_print_latency(int fd)
 {
 	dprintf(fd, "bucket [us] : events\n");
 
 	for (int i = 0; i < latency_bucket_count; i++) {
-		printf("       %4i : %li\n", latency_buckets[i], (long int)latency_counters[i]);
+		dprintf(fd, "       %4i : %li\n", latency_buckets[i], (long int)latency_counters[i]);
 	}
 
 	// print the overflow bucket value
